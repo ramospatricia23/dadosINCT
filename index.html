@@ -1,120 +1,61 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Conversor DwC - SiBBr (Excel & CSV)</title>
-    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
-    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background-color: #f0f2f5; padding: 40px; }
-        .card { max-width: 850px; margin: auto; padding: 30px; border-radius: 20px; border: none; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        .btn-peld { background-color: #1a5d1a; color: white; font-weight: bold; }
-        .btn-peld:hover { background-color: #144514; color: white; }
-    </style>
+  <meta charset="UTF-8">
+  <title>Conversor DarwinCore - SiBBr</title>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 </head>
+
 <body>
+<h2>Converter planilha para padrão SiBBr</h2>
 
-<div class="card">
-    <div class="text-center mb-4">
-        <h2>🌿 Conversor Darwin Core Multi-Formato</h2>
-        <p class="text-muted">Suporta arquivos .csv, .xls e .xlsx</p>
-    </div>
-    
-    <div class="row g-3">
-        <div class="col-md-6">
-            <label class="form-label fw-bold">Planilha de Dados</label>
-            <input type="file" id="file_data" class="form-control" accept=".csv, .xls, .xlsx">
-        </div>
-        <div class="col-md-6">
-            <label class="form-label fw-bold">Dicionário de Dados</label>
-            <input type="file" id="file_dic" class="form-control" accept=".csv, .xls, .xlsx">
-        </div>
-    </div>
+<input type="file" id="fileInput"
+accept=".xlsx,.xls,.csv">
 
-    <button id="process_btn" class="btn btn-peld w-100 mt-4 py-2">CONVERTER PARA SIBBR</button>
-    
-    <div id="status" class="mt-3 text-center fw-bold text-secondary"></div>
+<button onclick="processar()">Converter</button>
 
-    <div id="result_area" class="mt-4 p-3 border border-success rounded text-center" style="display:none; background-color: #fafffa;">
-        <h5 class="text-success mb-3">✅ Processamento concluído!</h5>
-        <div class="d-flex justify-content-center gap-2">
-            <a id="down_ev" class="btn btn-dark">Baixar EVENT.csv</a>
-            <a id="down_occ" class="btn btn-dark">Baixar OCCURRENCE.csv</a>
-        </div>
-    </div>
-</div>
+<script>
+function processar() {
 
-<py-config>
-    packages = ["pandas", "openpyxl"]
-</py-config>
+  const file = document.getElementById('fileInput').files[0];
+  const reader = new FileReader();
 
-<script type="py">
-from pyscript import when
-import pandas as pd
-import io
-from js import document, Blob, URL, Uint8Array
+  reader.onload = function(e) {
 
-async def read_as_df(file_handle):
-    name = file_handle.name.lower()
-    # Para Excel, precisamos ler como array de bytes
-    array_buffer = await file_handle.arrayBuffer()
-    bytes_list = Uint8Array.new(array_buffer).to_bytes()
-    
-    if name.endswith('.csv'):
-        return pd.read_csv(io.BytesIO(bytes_list))
-    else:
-        # Suporta .xls e .xlsx
-        return pd.read_excel(io.BytesIO(bytes_list))
+    const data = new Uint8Array(e.target.result);
 
-@when("click", "#process_btn")
-async def process(event):
-    status = document.getElementById("status")
-    status.innerHTML = "⌛ Lendo arquivos e carregando motor Excel..."
-    
-    try:
-        h_data = document.getElementById("file_data").files.item(0)
-        h_dic = document.getElementById("file_dic").files.item(0)
+    // SheetJS detecta automaticamente o formato
+    const workbook = XLSX.read(data, {type: "array"});
 
-        if not h_data or not h_dic:
-            status.innerHTML = "❌ Erro: Selecione ambos os arquivos."
-            return
+    const sheetName = workbook.SheetNames[0];
+    const json = XLSX.utils.sheet_to_json(
+        workbook.Sheets[sheetName]
+    );
 
-        df = await read_as_df(h_data)
-        dic = await read_as_df(h_dic)
-        
-        status.innerHTML = "⚙️ Mapeando colunas Darwin Core..."
-        
-        # Lógica de mapeamento
-        mapping = dict(zip(dic['Nome sugerido no PELD'], dic['Campo (Darwin Core)']))
-        df_dwc = df.rename(columns=mapping)
+    console.log("Dados lidos:", json);
 
-        # Filtros Core e Extension
-        cols_ev = ['eventID', 'eventDate', 'locationID', 'decimalLatitude', 'decimalLongitude', 'samplingProtocol', 'institutionCode']
-        ev_df = df_dwc[[c for c in df_dwc.columns if c in cols_ev]].drop_duplicates()
-        
-        cols_occ = ['occurrenceID', 'eventID', 'scientificName', 'basisOfRecord', 'recordedBy']
-        occ_df = df_dwc[[c for c in df_dwc.columns if c in cols_occ]]
-        
-        if 'scientificName' not in occ_df.columns:
-            occ_df['scientificName'] = 'Amostra de Água'
-            occ_df['basisOfRecord'] = 'MaterialSample'
+    // 👉 aqui entra sua lógica DarwinCore
+    const occurrence = [];
 
-        def make_link(df, el_id, fname):
-            csv = df.to_csv(index=False, encoding='utf-8-sig')
-            blob = Blob.new([csv], { "type": "text/csv" })
-            url = URL.createObjectURL(blob)
-            document.getElementById(el_id).href = url
-            document.getElementById(el_id).download = fname
+    json.forEach(row => {
+        occurrence.push({
+            occurrenceID: row.id_ocorrencia,
+            eventID: row.id_evento,
+            measurementType: "pH",
+            measurementValue: row.pH
+        });
+    });
 
-        make_link(ev_df, "down_ev", "event_sibbr.csv")
-        make_link(occ_df, "down_occ", "occurrence_sibbr.csv")
+    // cria nova planilha
+    const ws = XLSX.utils.json_to_sheet(occurrence);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "occurrence");
 
-        status.innerHTML = ""
-        document.getElementById("result_area").style.display = "block"
-        
-    except Exception as e:
-        status.innerHTML = f"⚠️ Erro: {str(e)}"
+    XLSX.writeFile(wb, "dados_SIBBR.xlsx");
+  };
+
+  reader.readAsArrayBuffer(file);
+}
 </script>
 
 </body>
