@@ -2,39 +2,46 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Conversor Darwin Core - PELD</title>
-    
+    <title>Conversor DwC - SiBBr</title>
     <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
     <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
-    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background-color: #f8f9fa; padding-top: 50px; }
-        .container { max-width: 800px; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .btn-primary { background-color: #2c3e50; border: none; }
+        body { background-color: #f8f9fa; padding: 40px; }
+        .card { max-width: 800px; margin: auto; padding: 20px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .loading-dots:after { content: ' .'; animation: dots 1s steps(5, end) infinite;}
+        @keyframes dots { 0%, 20% { color: rgba(0,0,0,0); text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0); } 40% { color: #28a745; text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0); } 60% { text-shadow: .25em 0 0 #28a745, .5em 0 0 rgba(0,0,0,0); } 80%, 100% { text-shadow: .25em 0 0 #28a745, .5em 0 0 #28a745; } }
     </style>
 </head>
 <body>
 
-<div class="container text-center">
-    <h2>🌿 Conversor Darwin Core (SiBBr)</h2>
-    <p class="text-muted">Transforme planilhas brutas em Event e Occurrence automaticamente.</p>
+<div class="card text-center">
+    <h3>🌿 Padronizador Darwin Core</h3>
+    <p>Converta seus CSVs para o formato SiBBr</p>
     <hr>
     
-    <div class="mb-3 text-start">
-        <label class="form-label">1. Planilha de Dados (CSV):</label>
-        <input type="file" id="dados_input" class="form-control">
-    </div>
-    
-    <div class="mb-3 text-start">
-        <label class="form-label">2. Dicionário de Dados (CSV):</label>
-        <input type="file" id="dic_input" class="form-control">
+    <div class="row g-3 text-start">
+        <div class="col-md-6">
+            <label class="form-label fw-bold">Dados Brutos (CSV)</label>
+            <input type="file" id="csv_data" class="form-control">
+        </div>
+        <div class="col-md-6">
+            <label class="form-label fw-bold">Dicionário (CSV)</label>
+            <input type="file" id="csv_dic" class="form-control">
+        </div>
     </div>
 
-    <button id="convert_btn" class="btn btn-primary w-100 py-2">Gerar Arquivos para o SiBBr</button>
+    <button id="run_button" class="btn btn-success w-100 mt-4 py-2 fw-bold">GERAR ARQUIVOS</button>
     
-    <div id="output" class="mt-4"></div>
+    <div id="status_log" class="mt-3 fw-bold text-secondary"></div>
+
+    <div id="download_box" class="mt-4 py-3 border border-success rounded" style="display:none; background-color: #e9f7ef;">
+        <h5 class="text-success">✅ Arquivos prontos!</h5>
+        <div class="mt-3">
+            <a id="link_ev" class="btn btn-dark mx-2">Download EVENT.csv</a>
+            <a id="link_occ" class="btn btn-dark mx-2">Download OCCURRENCE.csv</a>
+        </div>
+    </div>
 </div>
 
 <py-config>
@@ -42,23 +49,65 @@
 </py-config>
 
 <script type="py">
-    import pandas as pd
-    from pyscript import display, when
-    from js import document, Uint8Array, File, URL
-    import io
+from pyscript import when, display
+import pandas as pd
+import io
+from js import document, Blob, URL
 
-    @when("click", "#convert_btn")
-    async def processar_arquivos(event):
-        # Lógica para ler os arquivos do input HTML
-        # (O PyScript fará a mágica de converter o CSV em DataFrame aqui)
-        output_div = document.getElementById("output")
-        output_div.innerHTML = "<div class='alert alert-info'>Processando... aguarde.</div>"
+@when("click", "#run_button")
+async def process_files(event):
+    log = document.getElementById("status_log")
+    log.innerHTML = "Lendo arquivos<span class='loading-dots'></span>"
+    
+    try:
+        # Captura os arquivos
+        input_data = document.getElementById("csv_data").files.item(0)
+        input_dic = document.getElementById("csv_dic").files.item(0)
+
+        if not input_data or not input_dic:
+            log.innerHTML = "❌ Erro: Selecione ambos os arquivos CSV."
+            return
+
+        # Processamento
+        data_content = await input_data.text()
+        dic_content = await input_dic.text()
         
-        # [A lógica de conversão simplificada entra aqui]
-        # Devido à complexidade de ler arquivos locais via PyScript JS-Bridge,
-        # este código gerará os links de download automaticamente.
+        df = pd.read_csv(io.StringIO(data_content))
+        dic = pd.read_csv(io.StringIO(dic_content))
         
-        output_div.innerHTML = "<div class='alert alert-success'>✅ Pronto! Os links de download aparecerão abaixo.</div>"
+        log.innerHTML = "Mapeando colunas Darwin Core..."
+        
+        # Lógica de mapeamento baseada no seu dicionário
+        mapping = dict(zip(dic['Nome sugerido no PELD'], dic['Campo (Darwin Core)']))
+        df_dwc = df.rename(columns=mapping)
+
+        # Filtros para o Event Core e Occurrence Extension
+        cols_ev = ['eventID', 'eventDate', 'locationID', 'decimalLatitude', 'decimalLongitude', 'samplingProtocol']
+        event_df = df_dwc[[c for c in df_dwc.columns if c in cols_ev]].drop_duplicates()
+        
+        cols_occ = ['occurrenceID', 'eventID', 'scientificName', 'basisOfRecord']
+        occ_df = df_dwc[[c for c in df_dwc.columns if c in cols_occ]]
+        if 'scientificName' not in occ_df.columns:
+            occ_df['scientificName'] = 'Water Sample'
+            occ_df['basisOfRecord'] = 'MaterialSample'
+
+        # Gerar Downloads
+        def setup_download(df, element_id, filename):
+            csv_data = df.to_csv(index=False, encoding='utf-8-sig')
+            blob = Blob.new([csv_data], { "type": "text/csv" })
+            url = URL.createObjectURL(blob)
+            link = document.getElementById(element_id)
+            link.href = url
+            link.download = filename
+
+        setup_download(event_df, "link_ev", "event.csv")
+        setup_download(occ_df, "link_occ", "occurrence.csv")
+
+        log.innerHTML = ""
+        document.getElementById("download_box").style.display = "block"
+        
+    except Exception as e:
+        log.innerHTML = f"⚠️ Erro no processamento: {str(e)}"
 </script>
 
 </body>
